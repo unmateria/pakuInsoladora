@@ -61,6 +61,7 @@ class App(tk.Tk):
 
         self._source_img = None
         self._source_path = None
+        self._source_is_pdf = False
         self._photo = None
         self._lang = "es"
 
@@ -108,7 +109,7 @@ class App(tk.Tk):
         self._printer_var = tk.StringVar(value=list(PRINTERS.keys())[0])
         self._printer_menu = tk.OptionMenu(
             left, self._printer_var, *PRINTERS.keys(),
-            command=lambda _: self._update_preview(),
+            command=lambda _: self._reload_source(),
         )
         self._printer_menu.config(bg="#3c3c3c", fg="white", activebackground="#555",
                                    relief=tk.FLAT, highlightthickness=0)
@@ -195,16 +196,25 @@ class App(tk.Tk):
         if not path:
             return
         try:
-            self._source_img = load_image(path)
             self._source_path = path
+            self._source_is_pdf = path.lower().endswith(".pdf")
+            self._reload_source()
             self._lbl_file.config(text=os.path.basename(path), fg="#ccc")
             self._lbl_status.config(text="")
-            self._update_preview()
         except Exception as e:
             self._lbl_status.config(text=self._s("error_pfx").format(e), fg="#e05252")
 
     def _current_printer(self):
         return PRINTERS[self._printer_var.get()]
+
+    def _reload_source(self):
+        """(Re)carga la imagen al DPI nativo de la impresora actual."""
+        if not self._source_path:
+            return
+        printer = self._current_printer()
+        pixel_um = printer["pixel_um"] if self._source_is_pdf else None
+        self._source_img = load_image(self._source_path, pixel_um=pixel_um)
+        self._update_preview()
 
     def _update_preview(self):
         if self._source_img is None:

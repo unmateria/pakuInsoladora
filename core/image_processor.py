@@ -10,20 +10,26 @@ try:
 except ImportError:
     HAS_PYMUPDF = False
 
-PDF_DPI = 600  # Alta resolución para que el escalado posterior sea siempre hacia abajo
 
+def load_image(path: str, pixel_um: float = None) -> Image.Image:
+    """Carga imagen o PDF.
 
-def load_image(path: str) -> Image.Image:
-    """Carga imagen o PDF y devuelve Image en modo L."""
+    PDFs: se renderizan al DPI nativo de la impresora (25400 / pixel_um) para
+    que cada píxel renderizado corresponda a un píxel de pantalla sin escalar.
+    Si pixel_um no se proporciona, usa 600 DPI como fallback.
+
+    Imágenes raster: se cargan tal cual (sin alterar la resolución).
+    """
     ext = path.lower().rsplit(".", 1)[-1]
     if ext == "pdf":
         if not HAS_PYMUPDF:
             raise RuntimeError(
                 "Soporte PDF no disponible. Instala PyMuPDF: pip install PyMuPDF"
             )
+        target_dpi = (25_400.0 / pixel_um) if pixel_um else 600.0
         doc = fitz.open(path)
         page = doc[0]
-        mat = fitz.Matrix(PDF_DPI / 72, PDF_DPI / 72)
+        mat = fitz.Matrix(target_dpi / 72, target_dpi / 72)
         pix = page.get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
         img = Image.frombytes("L", (pix.width, pix.height), pix.samples)
         doc.close()
@@ -38,22 +44,17 @@ def prepare_for_printer(
     res_y: int,
     invert: bool,
 ) -> Image.Image:
-    """Prepara la imagen para la impresora.
+    """Prepara la imagen para la impresora SIN escalar.
 
-    Escala siempre de forma proporcional para que quepa en la pantalla.
-    Nunca deforma el aspecto. Centra en canvas negro.
+    La imagen se centra en el canvas. Si excede la pantalla se recorta;
+    si es más pequeña queda rodeada de negro. Nunca se escala.
     """
     if invert:
         img = ImageOps.invert(img.convert("L"))
 
-    scale = min(res_x / img.width, res_y / img.height)
-    new_w = max(1, round(img.width * scale))
-    new_h = max(1, round(img.height * scale))
-    img = img.resize((new_w, new_h), Image.LANCZOS)
-
     canvas = Image.new("L", (res_x, res_y), 0)
-    ox = (res_x - new_w) // 2
-    oy = (res_y - new_h) // 2
+    ox = (res_x - img.width) // 2
+    oy = (res_y - img.height) // 2
     canvas.paste(img, (ox, oy))
 
     return canvas.convert("1")
