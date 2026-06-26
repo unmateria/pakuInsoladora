@@ -11,43 +11,89 @@ PRINTERS = {
         "bed_x": 82.62, "bed_y": 130.56,
         "pixel_um": 51.0,
         "ext": ".pwmo",
+        "rle": "pw0",
     },
     "Anycubic Photon Mono SE": {
         "res_x": 1620, "res_y": 2560,
         "bed_x": 82.62, "bed_y": 130.56,
         "pixel_um": 51.0,
         "ext": ".pwmo",
+        "rle": "pw0",
     },
     "Anycubic Photon Mono X": {
         "res_x": 3840, "res_y": 2400,
         "bed_x": 192.0, "bed_y": 120.0,
         "pixel_um": 50.0,
         "ext": ".pwmox",
+        "rle": "pw0",
     },
     "Anycubic Photon S": {
         "res_x": 1440, "res_y": 2560,
         "bed_x": 68.04, "bed_y": 120.96,
         "pixel_um": 47.25,
         "ext": ".pws",
+        "rle": "pws",
     },
 }
 
-# Named section header: 12-byte name (ASCII, null-padded) + 4-byte length
 _MARK_SIZE = 12
 _BASE_LEN  = 16  # name(12) + length(4)
 
 
 def _section(name: str, data: bytes, include_base_in_length: bool = False) -> bytes:
-    """Wraps data in a named section block."""
-    n = name.encode("ascii")
-    n = n + b"\x00" * (_MARK_SIZE - len(n))
+    n = name.encode("ascii").ljust(_MARK_SIZE, b"\x00")
     length = (len(data) + _BASE_LEN) if include_base_in_length else len(data)
     return n + struct.pack("<I", length) + data
 
 
-def encode_rle_pws(img_1bit: Image.Image) -> bytes:
-    """1-bit PWS RLE: bit7=color, bits0-6=run_length-1 (max run 128)."""
-    pixels = list(img_1bit.getdata())
+# ── RLE encoders ─────────────────────────────────────────────────────────────
+
+def encode_rle_pw0(img: Image.Image) -> bytes:
+    """
+    PW0 4-bit RLE (used by .pwmo, .pwmox, and all non-.pws Anycubic formats).
+
+    Each run of black or white pixels encodes as 2 bytes:
+      byte1 = (color_nibble << 4) | (run >> 8)   color: 0x0=black, 0xF=white
+      byte2 = run & 0xFF
+    Max run per pair: 4095 pixels.
+
+    Grey values use 1 byte: (code << 4) | short_run  (max 15 px per byte).
+    """
+    pixels = list(img.convert("L").getdata())
+    result = bytearray()
+    i = 0
+    total = len(pixels)
+    while i < total:
+        val = pixels[i]
+        run = 1
+        while i + run < total and run < 0xFFF and pixels[i + run] == val:
+            run += 1
+        run = min(run, 0xFFF)
+
+        if val == 0:       # black: code 0x0, 2-byte extended run
+            result.append(run >> 8)
+            result.append(run & 0xFF)
+        elif val >= 255:   # white: code 0xF, 2-byte extended run
+            result.append(0xF0 | (run >> 8))
+            result.append(run & 0xFF)
+        else:              # grey: 1 byte, max 15 pixels per byte
+            code = val >> 4
+            if code == 0:    code = 1   # don't collide with black
+            if code == 0xF:  code = 0xE  # don't collide with white
+            short_run = min(run, 15)
+            result.append((code << 4) | short_run)
+            run = short_run
+
+        i += run
+    return bytes(result)
+
+
+def encode_rle_pws(img: Image.Image) -> bytes:
+    """
+    PWS 1-bit RLE (used only by .pws — Photon S).
+    Each byte: bit7=color (1=white, 0=black), bits0-6=run_length-1 (max 128).
+    """
+    pixels = list(img.convert("1").getdata())
     result = bytearray()
     i = 0
     total = len(pixels)
@@ -61,6 +107,8 @@ def encode_rle_pws(img_1bit: Image.Image) -> bytes:
     return bytes(result)
 
 
+# ── File sections ─────────────────────────────────────────────────────────────
+
 def _rgb565(r, g, b):
     return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
 
@@ -68,13 +116,11 @@ def _rgb565(r, g, b):
 def _make_preview(res_x: int = 224, res_y: int = 168) -> bytes:
     """PREVIEW section data: ResX(4) + Mark(4) + ResY(4) + RGB565 pixels."""
     pixel = struct.pack("<H", _rgb565(20, 20, 20))
-    image_data = pixel * (res_x * res_y)
-    # Mark = b'*\x00\x00\x00' as seen in real .pwmo files
     return (
         struct.pack("<I", res_x) +
-        b"\x2a\x00\x00\x00" +
+        b"\x2a\x00\x00\x00" +   # mark field as seen in real .pwmo files
         struct.pack("<I", res_y) +
-        image_data
+        pixel * (res_x * res_y)
     )
 
 
@@ -101,37 +147,37 @@ def _make_header(printer: dict, exposure_time: float, print_time: int) -> bytes:
     d += struct.pack("<I", print_time)           # PrintTime
     d += struct.pack("<I", 0)                    # TransitionLayerCount
     d += struct.pack("<I", 0)                    # AdvancedMode
-    assert len(d) == 80, f"Header must be 80 bytes, got {len(d)}"
+    assert len(d) == 80
     return bytes(d)
 
 
+# ── Main writer ───────────────────────────────────────────────────────────────
+
 def write_anycubic(filepath: str, img: Image.Image, printer: dict, exposure_time: float) -> None:
-    img_1bit = img.convert("1")
-    rle_data = encode_rle_pws(img_1bit)
-    non_zero = sum(1 for p in img_1bit.getdata() if p)
     print_time = max(1, int(exposure_time))
 
+    # Encode layer image
+    if printer.get("rle", "pw0") == "pws":
+        rle_data = encode_rle_pws(img)
+    else:
+        rle_data = encode_rle_pw0(img)
+
+    non_zero = sum(1 for p in img.convert("L").getdata() if p > 127)
+
     # Build named sections
-    header_data  = _make_header(printer, exposure_time, print_time)
-    header_sec   = _section("HEADER",  header_data)                   # 16 + 80 = 96 bytes
+    header_sec  = _section("HEADER",  _make_header(printer, exposure_time, print_time))
+    preview_sec = _section("PREVIEW", _make_preview(), include_base_in_length=True)
 
-    preview_data = _make_preview()
-    preview_sec  = _section("PREVIEW", preview_data, include_base_in_length=True)  # length includes base
-
-    # LayerDef entry: DataAddr(I) DataLen(I) LiftH(f) LiftS(f) ExpTime(f) LayerH(f) NonZero(I) Pad(I)
-    # DataAddress is filled in after we know layer_image_addr
-    FILEMARK_SIZE = 48
-    header_addr   = FILEMARK_SIZE
-    preview_addr  = header_addr + len(header_sec)
-    layerdef_addr = preview_addr + len(preview_sec)
-
-    layer_entry_size = 32
-    layerdef_data_size = 4 + layer_entry_size           # LayerCount(4) + 1 entry
-    layer_image_addr = layerdef_addr + _BASE_LEN + layerdef_data_size
+    # Compute offsets
+    FILEMARK_SIZE   = 48
+    header_addr     = FILEMARK_SIZE
+    preview_addr    = header_addr + len(header_sec)
+    layerdef_addr   = preview_addr + len(preview_sec)
+    layer_image_addr = layerdef_addr + _BASE_LEN + 4 + 32  # +base +LayerCount +1 LayerDef entry
 
     layer_entry = struct.pack(
         "<IIffffII",
-        layer_image_addr,  # DataAddress (absolute)
+        layer_image_addr,  # DataAddress (absolute file offset)
         len(rle_data),     # DataLength
         6.0,               # LiftHeight
         3.0,               # LiftSpeed
@@ -142,17 +188,17 @@ def write_anycubic(filepath: str, img: Image.Image, printer: dict, exposure_time
     )
     layerdef_sec = _section("LAYERDEF", struct.pack("<I", 1) + layer_entry)
 
-    # FileMark (48 bytes): mark(12) + version(4) + ntables(4) + 7 addresses(4 each)
+    # FileMark: mark(12) + version(4) + ntables(4) + 7 addresses(4 each) = 48 bytes
     filemark = (
         b"ANYCUBIC\x00\x00\x00\x00" +
-        struct.pack("<I", 1) +            # Version = 1
-        struct.pack("<I", 0) +            # NumberOfTables = 0 (unused in v1)
+        struct.pack("<I", 1) +              # Version = 1
+        struct.pack("<I", 0) +              # NumberOfTables = 0 (unused in v1)
         struct.pack("<I", header_addr) +
-        struct.pack("<I", 0) +            # SoftwareAddress = 0 (not present in v1)
+        struct.pack("<I", 0) +              # SoftwareAddress = 0
         struct.pack("<I", preview_addr) +
-        struct.pack("<I", 0) +            # LayerImageColorTableAddress = 0
+        struct.pack("<I", 0) +              # LayerImageColorTableAddress = 0
         struct.pack("<I", layerdef_addr) +
-        struct.pack("<I", 0) +            # ExtraAddress = 0
+        struct.pack("<I", 0) +              # ExtraAddress = 0
         struct.pack("<I", layer_image_addr)
     )
     assert len(filemark) == FILEMARK_SIZE
