@@ -59,7 +59,10 @@ def encode_rle_pw0(img: Image.Image) -> bytes:
 
     Grey values use 1 byte: (code << 4) | short_run  (max 15 px per byte).
     """
-    pixels = list(img.convert("L").getdata())
+    # PIL mode "1" -> "L" returns 0/1 (not 0/255) depending on Pillow version.
+    # Explicit threshold ensures only true black (0) or white (255).
+    gray = img.convert("L")
+    pixels = [255 if p >= 128 else 0 for p in gray.getdata()]
     result = bytearray()
     i = 0
     total = len(pixels)
@@ -70,19 +73,12 @@ def encode_rle_pw0(img: Image.Image) -> bytes:
             run += 1
         run = min(run, 0xFFF)
 
-        if val == 0:       # black: code 0x0, 2-byte extended run
+        if val == 0:    # black: code 0x0, 2-byte extended run
             result.append(run >> 8)
             result.append(run & 0xFF)
-        elif val >= 255:   # white: code 0xF, 2-byte extended run
+        else:           # white: code 0xF, 2-byte extended run
             result.append(0xF0 | (run >> 8))
             result.append(run & 0xFF)
-        else:              # grey: 1 byte, max 15 pixels per byte
-            code = val >> 4
-            if code == 0:    code = 1   # don't collide with black
-            if code == 0xF:  code = 0xE  # don't collide with white
-            short_run = min(run, 15)
-            result.append((code << 4) | short_run)
-            run = short_run
 
         i += run
     return bytes(result)

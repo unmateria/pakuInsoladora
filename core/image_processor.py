@@ -42,7 +42,11 @@ def prepare_for_printer(
         img = ImageOps.invert(img.convert("L"))
 
     if fit:
-        img.thumbnail((res_x, res_y), Image.LANCZOS)
+        # thumbnail() solo reduce; resize explícito también agranda imágenes pequeñas
+        scale = min(res_x / img.width, res_y / img.height)
+        new_w = max(1, round(img.width * scale))
+        new_h = max(1, round(img.height * scale))
+        img = img.resize((new_w, new_h), Image.LANCZOS)
 
     # Centrar en fondo negro con la resolución exacta del printer
     canvas = Image.new("L", (res_x, res_y), 0)
