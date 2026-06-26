@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from PIL import Image, ImageTk
 
-from core.image_processor import load_image, prepare_for_printer, HAS_PYMUPDF
+from core.image_processor import load_image, prepare_for_printer, HAS_PYMUPDF, PDF_DPI
 from core.formats.anycubic import PRINTERS, write_anycubic
 
 PREVIEW_SIZE = (400, 600)
@@ -62,6 +62,7 @@ class App(tk.Tk):
         self.configure(bg="#1e1e1e")
 
         self._source_img = None
+        self._source_dpi = None
         self._source_path = None
         self._photo = None
         self._lang = "es"
@@ -207,7 +208,7 @@ class App(tk.Tk):
         if not path:
             return
         try:
-            self._source_img = load_image(path)
+            self._source_img, self._source_dpi = load_image(path)
             self._source_path = path
             self._lbl_file.config(text=os.path.basename(path), fg="#ccc")
             self._lbl_status.config(text="")
@@ -225,8 +226,10 @@ class App(tk.Tk):
         prepared = prepare_for_printer(
             self._source_img,
             printer["res_x"], printer["res_y"],
+            printer["pixel_um"],
             self._invert_var.get(),
             self._fit_var.get(),
+            source_dpi=self._source_dpi,
         )
         thumb = prepared.convert("L")
         thumb.thumbnail(PREVIEW_SIZE, Image.NEAREST)
