@@ -1,43 +1,59 @@
 # pakuInsoladora
 
-Herramienta open source para insolar PCBs presensibilizadas usando impresoras de resina MSLA (Anycubic Photon Mono, etc.).
+Expose presensitized PCBs using a resin MSLA printer. Load a PDF or image from KiCad/Eagle, set the exposure time, export the file for the USB stick.
 
-## Flujo de uso
+No UVtools. No slicer. No fuss.
 
-1. Exporta la capa de cobre de KiCad/Eagle como imagen (PNG o BMP a escala 1:1) o PDF
-2. Abre `main.py`
-3. Carga la imagen, selecciona la impresora y el tiempo de exposición
-4. Exporta el archivo `.pwmo` al USB
-5. Lanza la impresión — la pantalla UV insolará la placa en segundos
+## Download
 
-## Instalación
+Grab the latest binary from the [Releases page](https://github.com/unmateria/pakuInsoladora/releases/latest) — no installation needed:
+
+- **Windows** → `pakuInsoladora-windows.exe`
+- **Linux** → `pakuInsoladora-linux` (then `chmod +x`)
+
+## How it works
+
+1. Export the copper layer from KiCad/Eagle as a PNG, BMP or PDF
+2. Open pakuInsoladora, load the file
+3. Select your printer and exposure time (default: 8 s for Photon Mono)
+4. Tick **Invert** if your export has traces in black on white (KiCad default — this protects the copper)
+5. Click **Export** and copy the file to the USB stick
+6. Print — the UV screen exposes the board in seconds
+
+## Supported printers
+
+| Printer | Resolution | Output |
+|---------|-----------|--------|
+| Anycubic Photon Mono | 1620 × 2560 | `.pwmo` |
+| Anycubic Photon Mono SE | 1620 × 2560 | `.pwmo` |
+| Anycubic Photon Mono X | 3840 × 2400 | `.pwmox` |
+| Anycubic Photon S | 1440 × 2560 | `.pws` |
+
+Adding a new printer is a one-liner in `core/formats/anycubic.py`. Open an issue with your printer's resolution and bed size if you'd like it added.
+
+## Run from source
+
+Requires Python 3.8+:
 
 ```bash
+git clone https://github.com/unmateria/pakuInsoladora.git
+cd pakuInsoladora
 pip install -r requirements.txt
 python main.py
 ```
 
-## Impresoras soportadas
+## Build
 
-| Impresora              | Resolución    | Extensión |
-|------------------------|---------------|-----------|
-| Anycubic Photon Mono   | 1620 × 2560   | .pwmo     |
-| Anycubic Photon Mono SE| 1620 × 2560   | .pwmo     |
-| Anycubic Photon Mono X | 3840 × 2400   | .pwmox    |
-| Anycubic Photon S      | 1440 × 2560   | .pws      |
+Binaries are built automatically by GitHub Actions on every version tag using PyInstaller. To build locally:
 
-## Tiempo de exposición
+```bash
+pip install pyinstaller
+# Windows
+pyinstaller --onefile --windowed --name pakuInsoladora main.py
+# Linux
+pyinstaller --onefile --name pakuInsoladora main.py
+```
 
-El tiempo depende de la placa presensibilizada y la potencia de la pantalla. Un punto de partida:
+## License
 
-- Anycubic Photon Mono: **8 segundos**
-
-Ajusta según el resultado del revelado.
-
-## Sobre la inversión de imagen
-
-KiCad exporta las pistas en **negro** sobre fondo blanco. Para insolar correctamente (las pistas protegen el cobre, el fondo se expone) hay que **invertir** la imagen — la opción viene activada por defecto.
-
-## Licencia
-
-[GNU General Public License v3.0](LICENSE) — cualquier fork o modificación debe seguir siendo software libre.
+[GNU General Public License v3.0](LICENSE) — forks must remain free software.
