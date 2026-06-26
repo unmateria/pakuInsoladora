@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Compilar ejecutable Windows
+        run: >
+          pyinstaller
+          --onefile
+          --windowed
+          --name pakuInsoladora
+          --hidden-import PIL._tkinter_finder
+          --collect-all fitz
+          --add-data "core;core"
+          main.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-binary
+          path: dist/pakuInsoladora.exe
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias del sistema
+        run: sudo apt-get install -y python3-tk
+
+      - name: Instalar dependencias Python
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Compilar ejecutable Linux
+        run: >
+          pyinstaller
+          --onefile
+          --name pakuInsoladora
+          --hidden-import PIL._tkinter_finder
+          --collect-all fitz
+          --add-data "core:core"
+          main.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-binary
+          path: dist/pakuInsoladora
+
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - name: Preparar binarios
+        run: |
+          mv windows-binary/pakuInsoladora.exe pakuInsoladora-windows.exe
+          mv linux-binary/pakuInsoladora pakuInsoladora-linux
+          chmod +x pakuInsoladora-linux
+
+      - name: Crear release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "pakuInsoladora ${{ github.ref_name }}"
+          body: |
+            ## pakuInsoladora ${{ github.ref_name }}
+
+            Insoladora de PCBs para impresoras de resina MSLA. Carga un PDF o imagen de KiCad/Eagle y genera el archivo listo para el USB.
+
+            ### Descargar
+            - **Windows** → `pakuInsoladora-windows.exe` (sin instalación)
+            - **Linux** → `pakuInsoladora-linux` (dar permiso con `chmod +x`)
+
+            ### Impresoras soportadas
+            - Anycubic Photon Mono / Mono SE → `.pwmo`
+            - Anycubic Photon Mono X → `.pwmox`
+            - Anycubic Photon S → `.pws`
+          files: |
+            pakuInsoladora-windows.exe
+            pakuInsoladora-linux
