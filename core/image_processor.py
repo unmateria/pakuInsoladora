@@ -10,12 +10,11 @@ try:
 except ImportError:
     HAS_PYMUPDF = False
 
-PDF_DPI = 600  # Renderizar PDFs a alta resolución para evitar bordes dentados
+PDF_DPI = 600  # Alta resolución para que el escalado posterior sea siempre hacia abajo
 
 
-def load_image(path: str):
-    """Carga imagen o PDF. Devuelve (img_L, source_dpi).
-    source_dpi es PDF_DPI para PDFs, None para imágenes raster."""
+def load_image(path: str) -> Image.Image:
+    """Carga imagen o PDF y devuelve Image en modo L."""
     ext = path.lower().rsplit(".", 1)[-1]
     if ext == "pdf":
         if not HAS_PYMUPDF:
@@ -28,47 +27,33 @@ def load_image(path: str):
         pix = page.get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
         img = Image.frombytes("L", (pix.width, pix.height), pix.samples)
         doc.close()
-        return img, PDF_DPI
+        return img
     else:
-        img = Image.open(path).convert("L")
-        return img, None
+        return Image.open(path).convert("L")
 
 
 def prepare_for_printer(
     img: Image.Image,
     res_x: int,
     res_y: int,
-    pixel_um: float,
     invert: bool,
-    fit: bool,
-    source_dpi: int = None,
 ) -> Image.Image:
-    """Procesa la imagen para la impresora.
+    """Prepara la imagen para la impresora.
 
-    fit=True  → escala para rellenar la pantalla (cambia escala física).
-    fit=False → escala 1:1 físico si se conoce source_dpi; si no, sin escala.
+    Escala siempre de forma proporcional para que quepa en la pantalla.
+    Nunca deforma el aspecto. Centra en canvas negro.
     """
     if invert:
         img = ImageOps.invert(img.convert("L"))
 
-    if fit:
-        scale = min(res_x / img.width, res_y / img.height)
-    elif source_dpi is not None:
-        # 1:1 físico: printer_dpi / source_dpi
-        printer_dpi = 25_400.0 / pixel_um
-        scale = printer_dpi / source_dpi
-    else:
-        scale = 1.0
+    scale = min(res_x / img.width, res_y / img.height)
+    new_w = max(1, round(img.width * scale))
+    new_h = max(1, round(img.height * scale))
+    img = img.resize((new_w, new_h), Image.LANCZOS)
 
-    if abs(scale - 1.0) > 0.001:
-        new_w = max(1, round(img.width * scale))
-        new_h = max(1, round(img.height * scale))
-        img = img.resize((new_w, new_h), Image.LANCZOS)
-
-    # Centrar en canvas negro con la resolución exacta del printer
     canvas = Image.new("L", (res_x, res_y), 0)
-    offset_x = (res_x - img.width) // 2
-    offset_y = (res_y - img.height) // 2
-    canvas.paste(img, (offset_x, offset_y))
+    ox = (res_x - new_w) // 2
+    oy = (res_y - new_h) // 2
+    canvas.paste(img, (ox, oy))
 
     return canvas.convert("1")

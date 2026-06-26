@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from PIL import Image, ImageTk
 
-from core.image_processor import load_image, prepare_for_printer, HAS_PYMUPDF, PDF_DPI
+from core.image_processor import load_image, prepare_for_printer, HAS_PYMUPDF
 from core.formats.anycubic import PRINTERS, write_anycubic
 
 PREVIEW_SIZE = (400, 600)
@@ -19,7 +19,6 @@ STRINGS = {
         "printer_lbl":   "Impresora:",
         "exposure_lbl":  "Tiempo de exposición (s):",
         "invert_lbl":    "Invertir imagen",
-        "fit_lbl":       "Ajustar a cama (escalar)",
         "export_btn":    "Exportar archivo…",
         "no_image_err":  "Abre una imagen primero.",
         "invalid_time":  "Tiempo de exposición inválido.",
@@ -38,7 +37,6 @@ STRINGS = {
         "printer_lbl":   "Printer:",
         "exposure_lbl":  "Exposure time (s):",
         "invert_lbl":    "Invert image",
-        "fit_lbl":       "Fit to bed (scale)",
         "export_btn":    "Export file…",
         "no_image_err":  "Open an image first.",
         "invalid_time":  "Invalid exposure time.",
@@ -62,7 +60,6 @@ class App(tk.Tk):
         self.configure(bg="#1e1e1e")
 
         self._source_img = None
-        self._source_dpi = None
         self._source_path = None
         self._photo = None
         self._lang = "es"
@@ -136,15 +133,6 @@ class App(tk.Tk):
         )
         self._chk_invert.pack(anchor=tk.W)
 
-        self._fit_var = tk.BooleanVar(value=True)
-        self._chk_fit = tk.Checkbutton(
-            left, text=self._s("fit_lbl"),
-            variable=self._fit_var, command=self._update_preview,
-            bg="#1e1e1e", fg="#ccc", selectcolor="#3c3c3c",
-            activebackground="#1e1e1e", activeforeground="white",
-        )
-        self._chk_fit.pack(anchor=tk.W, pady=(0, 10))
-
         ttk.Separator(left).pack(fill=tk.X, pady=6)
 
         self._btn_export = tk.Button(
@@ -187,7 +175,6 @@ class App(tk.Tk):
         self._lbl_printer.config(text=self._s("printer_lbl"))
         self._lbl_exposure.config(text=self._s("exposure_lbl"))
         self._chk_invert.config(text=self._s("invert_lbl"))
-        self._chk_fit.config(text=self._s("fit_lbl"))
         self._btn_export.config(text=self._s("export_btn"))
         if not self._source_path:
             self._lbl_file.config(text=self._s("no_file"))
@@ -208,7 +195,7 @@ class App(tk.Tk):
         if not path:
             return
         try:
-            self._source_img, self._source_dpi = load_image(path)
+            self._source_img = load_image(path)
             self._source_path = path
             self._lbl_file.config(text=os.path.basename(path), fg="#ccc")
             self._lbl_status.config(text="")
@@ -226,10 +213,7 @@ class App(tk.Tk):
         prepared = prepare_for_printer(
             self._source_img,
             printer["res_x"], printer["res_y"],
-            printer["pixel_um"],
             self._invert_var.get(),
-            self._fit_var.get(),
-            source_dpi=self._source_dpi,
         )
         thumb = prepared.convert("L")
         thumb.thumbnail(PREVIEW_SIZE, Image.NEAREST)
