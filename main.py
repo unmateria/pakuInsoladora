@@ -19,6 +19,7 @@ STRINGS = {
         "printer_lbl":   "Impresora:",
         "exposure_lbl":  "Tiempo de exposición (s):",
         "invert_lbl":    "Invertir imagen",
+        "rotate_btn":    "Rotar 90°",
         "export_btn":    "Exportar archivo…",
         "no_image_err":  "Abre una imagen primero.",
         "invalid_time":  "Tiempo de exposición inválido.",
@@ -37,6 +38,7 @@ STRINGS = {
         "printer_lbl":   "Printer:",
         "exposure_lbl":  "Exposure time (s):",
         "invert_lbl":    "Invert image",
+        "rotate_btn":    "Rotate 90°",
         "export_btn":    "Export file…",
         "no_image_err":  "Open an image first.",
         "invalid_time":  "Invalid exposure time.",
@@ -64,6 +66,7 @@ class App(tk.Tk):
         self._source_is_pdf = False
         self._photo = None
         self._lang = "es"
+        self._rotation = 0
 
         self._build_ui()
 
@@ -134,6 +137,14 @@ class App(tk.Tk):
         )
         self._chk_invert.pack(anchor=tk.W)
 
+        self._btn_rotate = tk.Button(
+            left, text=self._s("rotate_btn"),
+            command=self._rotate,
+            bg="#3c3c3c", fg="white", activebackground="#555",
+            relief=tk.FLAT, padx=8, pady=6, cursor="hand2",
+        )
+        self._btn_rotate.pack(fill=tk.X, pady=(8, 0))
+
         ttk.Separator(left).pack(fill=tk.X, pady=6)
 
         self._btn_export = tk.Button(
@@ -176,6 +187,7 @@ class App(tk.Tk):
         self._lbl_printer.config(text=self._s("printer_lbl"))
         self._lbl_exposure.config(text=self._s("exposure_lbl"))
         self._chk_invert.config(text=self._s("invert_lbl"))
+        self._btn_rotate.config(text=self._s("rotate_btn"))
         self._btn_export.config(text=self._s("export_btn"))
         if not self._source_path:
             self._lbl_file.config(text=self._s("no_file"))
@@ -198,6 +210,7 @@ class App(tk.Tk):
         try:
             self._source_path = path
             self._source_is_pdf = path.lower().endswith(".pdf")
+            self._rotation = 0
             self._reload_source()
             self._lbl_file.config(text=os.path.basename(path), fg="#ccc")
             self._lbl_status.config(text="")
@@ -206,6 +219,20 @@ class App(tk.Tk):
 
     def _current_printer(self):
         return PRINTERS[self._printer_var.get()]
+
+    def _rotate(self):
+        if self._source_img is None:
+            return
+        self._rotation = (self._rotation + 90) % 360
+        self._update_preview()
+
+    def _rotated_source(self):
+        """Devuelve la imagen fuente con la rotación actual aplicada."""
+        if self._source_img is None:
+            return None
+        if self._rotation:
+            return self._source_img.rotate(-self._rotation, expand=True)
+        return self._source_img
 
     def _reload_source(self):
         """(Re)carga la imagen al DPI nativo de la impresora actual."""
@@ -220,8 +247,9 @@ class App(tk.Tk):
         if self._source_img is None:
             return
         printer = self._current_printer()
+        source = self._rotated_source()
         prepared = prepare_for_printer(
-            self._source_img,
+            source,
             printer["res_x"], printer["res_y"],
             self._invert_var.get(),
         )
@@ -238,7 +266,7 @@ class App(tk.Tk):
 
         self._lbl_info.config(
             text=self._s("info_fmt").format(
-                self._source_img.width, self._source_img.height,
+                source.width, source.height,
                 printer["bed_x"], printer["bed_y"],
                 printer["res_x"], printer["res_y"],
             ),
@@ -270,10 +298,9 @@ class App(tk.Tk):
 
         try:
             prepared = prepare_for_printer(
-                self._source_img,
+                self._rotated_source(),
                 printer["res_x"], printer["res_y"],
                 self._invert_var.get(),
-                self._fit_var.get(),
             )
             write_anycubic(path, prepared, printer, exposure)
             self._lbl_status.config(
